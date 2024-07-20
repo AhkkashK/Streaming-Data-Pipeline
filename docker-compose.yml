@@ -1,0 +1,85 @@
+version: '3'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    
+  mongodb:
+    image: mongo:4.4.3
+    ports:
+      - "27017:27017"
+    
+  producer:
+    image: python:3.9-slim
+    depends_on:
+      - kafka
+    volumes:
+      - ./producer.py:/app/producer.py
+    working_dir: /app
+    command: ["sh", "-c", "pip install kafka-python && python producer.py"]
+    
+  consumer:
+    image: python:3.9-slim
+    depends_on:
+      - kafka
+      - mongodb
+    volumes:
+      - ./consumer.py:/app/consumer.py
+    environment:
+      - MONGODB_HOST=mongodb
+    working_dir: /app
+    command: ["sh", "-c", "pip install kafka-python pymongo && python consumer.py"]
+
+  spark:
+    image: bitnami/spark:latest
+    depends_on:
+      - mongodb
+      - postgres
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./spark-streaming.py:/app/spark-streaming.py
+    working_dir: /app
+    command: ["sh", "-c", "/opt/bitnami/spark/bin/spark-submit --master local[2] --packages org.mongodb.spark:mongo-spark-connector_2.12:3.0.1,org.postgresql:postgresql:42.2.18 spark-streaming.py"]
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: bank
+    ports:
+      - "5432:5432"
+  
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+
+volumes:
+  grafana-storage:
